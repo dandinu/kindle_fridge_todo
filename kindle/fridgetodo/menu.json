@@ -1,0 +1,16 @@
+{
+	"items": [
+	{
+		"name": "Fridge To-do",
+		"priority": 0,
+		"items": [
+			{ "name": "Start fridge mode", "priority": 1, "action": "bin/fridge.sh", "params": "start", "exitmenu": true },
+			{ "name": "Stop fridge mode", "priority": 2, "action": "bin/fridge.sh", "params": "stop", "exitmenu": false, "status": false },
+			{ "name": "Stay awake (SSH mode)", "priority": 3, "action": "bin/fridge.sh", "params": "awake", "exitmenu": false },
+			{ "name": "Allow sleep again", "priority": 4, "action": "bin/fridge.sh", "params": "sleep", "exitmenu": false },
+			{ "name": "Autostart on boot: ON", "priority": 5, "action": "bin/fridge.sh", "params": "autostart-on", "exitmenu": false },
+			{ "name": "Autostart on boot: OFF", "priority": 6, "action": "bin/fridge.sh", "params": "autostart-off", "exitmenu": false }
+		]
+	}
+	]
+}

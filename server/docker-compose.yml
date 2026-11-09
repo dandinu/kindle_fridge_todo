@@ -1,0 +1,12 @@
+services:
+  kindle-todo:
+    build: .
+    container_name: kindle-todo
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      TZ: Europe/Amsterdam
+      API_TOKEN: ${API_TOKEN:-}
+    volumes:
+      - ./data:/data

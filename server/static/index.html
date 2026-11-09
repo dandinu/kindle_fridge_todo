@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111">
+<title>Fridge To-do</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fafafa; --fg:#111; --muted:#888; --card:#fff; --line:#e3e3e3; --accent:#111; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --muted:#888; --card:#1b1b1b; --line:#2c2c2c; --accent:#eee; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:17px/1.4 -apple-system, system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:560px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:28px; margin:8px 0 16px; }
+  form { display:flex; gap:8px; margin-bottom:16px; }
+  input[type=text] { flex:1; font:inherit; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--fg); }
+  button { font:inherit; border:0; border-radius:10px; padding:10px 14px; background:var(--accent); color:var(--bg); cursor:pointer; }
+  button.ghost { background:none; color:var(--muted); padding:6px 8px; }
+  ul { list-style:none; padding:0; margin:0; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  li { display:flex; align-items:center; gap:8px; padding:10px 8px 10px 12px; border-top:1px solid var(--line); }
+  li:first-child { border-top:0; }
+  li input[type=checkbox] { width:22px; height:22px; flex:none; }
+  li .text { flex:1; word-break:break-word; }
+  li.done .text { color:var(--muted); text-decoration:line-through; }
+  .empty { padding:16px; color:var(--muted); text-align:center; }
+  .row { display:flex; justify-content:space-between; align-items:center; margin-top:10px; }
+  .card { margin-top:28px; padding:14px; background:var(--card); border:1px solid var(--line); border-radius:12px; }
+  .card h2 { font-size:16px; margin:0 0 8px; }
+  .muted { color:var(--muted); font-size:14px; }
+  .btns { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .btns button { padding:8px 12px; font-size:15px; }
+  .awake { color:#2a9d3a; font-weight:600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fridge To-do</h1>
+  <form id="add">
+    <input type="text" id="text" placeholder="Add an item…" autocomplete="off" autofocus>
+    <button>Add</button>
+  </form>
+  <ul id="list"></ul>
+  <div class="row">
+    <span class="muted" id="count"></span>
+    <button class="ghost" id="clear">Clear done</button>
+  </div>
+
+  <div class="card">
+    <h2>Kindle</h2>
+    <div class="muted" id="kstatus">…</div>
+    <div class="btns">
+      <button data-min="30">Stay awake 30 min</button>
+      <button data-min="120">Stay awake 2 h</button>
+      <button data-min="0" class="ghost">Let it sleep</button>
+    </div>
+    <div class="muted" style="margin-top:8px">The Kindle checks in every 15 min, so it can take up to 15 min for “stay awake” to apply.</div>
+  </div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const api = (path, method = "GET", body) =>
+  fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body && JSON.stringify(body) })
+    .then(r => r.json());
+
+function render(items) {
+  const list = $("#list");
+  list.innerHTML = "";
+  if (!items.length) list.innerHTML = '<li class="empty">Nothing to do 🎉</li>';
+  const open = items.filter(i => !i.done);
+  items.forEach(item => {
+    const li = document.createElement("li");
+    if (item.done) li.className = "done";
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = item.done;
+    cb.onchange = () => api(`/api/items/${item.id}`, "PATCH", { done: cb.checked }).then(render);
+    const span = document.createElement("span");
+    span.className = "text"; span.textContent = item.text;
+    span.ondblclick = () => {
+      const t = prompt("Edit item", item.text);
+      if (t && t.trim()) api(`/api/items/${item.id}`, "PATCH", { text: t }).then(render);
+    };
+    li.append(cb, span);
+    if (!item.done) {
+      const idx = open.indexOf(item);
+      const move = d => {
+        const ids = open.map(i => i.id);
+        const j = idx + d;
+        if (j < 0 || j >= ids.length) return;
+        [ids[idx], ids[j]] = [ids[j], ids[idx]];
+        api("/api/order", "POST", { ids }).then(render);
+      };
+      const up = Object.assign(document.createElement("button"), { className: "ghost", textContent: "↑", title: "Move up", onclick: () => move(-1) });
+      const down = Object.assign(document.createElement("button"), { className: "ghost", textContent: "↓", title: "Move down", onclick: () => move(1) });
+      li.append(up, down);
+    }
+    const del = Object.assign(document.createElement("button"), { className: "ghost", textContent: "✕", title: "Delete" });
+    del.onclick = () => api(`/api/items/${item.id}`, "DELETE").then(render);
+    li.append(del);
+    list.append(li);
+  });
+  $("#count").textContent = `${open.length} open`;
+}
+
+function ago(ts) {
+  if (!ts) return "never";
+  const s = Math.floor(Date.now() / 1000) - ts;
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return `${Math.floor(s / 86400)} d ago`;
+}
+
+function renderKindle(k) {
+  const parts = [`Last check-in: ${ago(k.last_seen)}`];
+  if (k.battery) parts.push(`battery ${k.battery}%`);
+  let html = parts.join(" · ");
+  if (k.stay_awake_until > k.now) {
+    const until = new Date(k.stay_awake_until * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    html += `<br><span class="awake">Stay-awake requested until ${until}</span>`;
+  }
+  $("#kstatus").innerHTML = html;
+}
+
+$("#add").onsubmit = e => {
+  e.preventDefault();
+  const text = $("#text").value.trim();
+  if (!text) return;
+  $("#text").value = "";
+  api("/api/items", "POST", { text }).then(render);
+};
+$("#clear").onclick = () => api("/api/clear-done", "POST").then(render);
+document.querySelectorAll("[data-min]").forEach(b =>
+  b.onclick = () => api("/api/kindle/stay-awake", "POST", { minutes: +b.dataset.min }).then(renderKindle));
+
+const refresh = () => { api("/api/items").then(render); api("/api/kindle").then(renderKindle); };
+refresh();
+setInterval(refresh, 30000);
+document.addEventListener("visibilitychange", () => !document.hidden && refresh());
+</script>
+</body>
+</html>
