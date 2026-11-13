@@ -31,10 +31,10 @@
   .btns button { padding:8px 12px; font-size:15px; }
   .awake { color:#2a9d3a; font-weight:600; }
   /* Each row is independent: its cells share that row's full width. */
-  #grid { display:flex; flex-direction:column; gap:8px; }
-  .grow { display:flex; flex-wrap:wrap; align-items:center; gap:2px 4px; }
+  #grid { display:flex; flex-direction:column; gap:12px; }
+  .grow { display:flex; flex-wrap:wrap; align-items:center; gap:2px 4px; padding:8px 6px 4px; border:1px solid var(--line); border-radius:12px; background:var(--bg); }
   .grow .cells { flex:1 1 230px; display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
-  .grow .cell { display:flex; align-items:center; min-width:84px; border:1px solid var(--line); border-radius:8px; }
+  .grow .cell { display:flex; align-items:center; min-width:60px; border:1px solid var(--line); border-radius:8px; }
   .grow .cell input { flex:1; width:0; min-width:0; font:inherit; padding:8px 4px; border:0; background:transparent; color:var(--fg); }
   .grow .cell:first-child input { font-weight:600; }
   .grow .cell .handle { padding:8px 2px 8px 4px; }
@@ -236,6 +236,7 @@ function renderGrid(focus) {
       const cell = document.createElement("div");
       cell.className = "cell";
       cell.style.flex = `${Math.max(text.length, 3)} 1 0`; // width follows content, per row
+      cell.style.minWidth = `calc(${Math.max(text.length, 2)}ch + 48px)`; // never clip the text: wrap to the next line instead
       cellEls.push(cell);
       const inp = Object.assign(document.createElement("input"), { type: "text", value: text, autocomplete: "off" });
       inp.oninput = () => { row[c] = inp.value; saveGrid(); };

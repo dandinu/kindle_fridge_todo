@@ -316,8 +316,12 @@ def kindle_png():
     if bat:
         set_state("battery", bat)
 
-    todo, table = items(), get_table()
-    etag = hashlib.sha1(repr((todo, table)).encode()).hexdigest()[:16]
+    # Render every time and hash the pixels, so the ETag also changes when the
+    # layout code changes (hashing only the data left the Kindle on a stale image).
+    buf = io.BytesIO()
+    render(items(), get_table()).save(buf, "PNG", optimize=True)
+    png = buf.getvalue()
+    etag = hashlib.sha1(png).hexdigest()[:16]
     headers = {"ETag": f'"{etag}"', "Cache-Control": "no-cache"}
     until = int(get_state("stay_awake_until", 0))
     if until > time.time():
@@ -325,10 +329,7 @@ def kindle_png():
 
     if request.headers.get("If-None-Match") == f'"{etag}"':
         return Response(status=304, headers=headers)
-
-    buf = io.BytesIO()
-    render(todo, table).save(buf, "PNG", optimize=True)
-    return Response(buf.getvalue(), mimetype="image/png", headers=headers)
+    return Response(png, mimetype="image/png", headers=headers)
 
 
 init_db()
