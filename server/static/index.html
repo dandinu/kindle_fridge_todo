@@ -30,16 +30,19 @@
   .btns { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
   .btns button { padding:8px 12px; font-size:15px; }
   .awake { color:#2a9d3a; font-weight:600; }
-  /* Each row is independent: its cells share that row's full width. */
+  /* Each row is independent: a slim control bar on top, then its cells side by side on one line. */
   #grid { display:flex; flex-direction:column; gap:12px; }
-  .grow { display:flex; flex-wrap:wrap; align-items:center; gap:2px 4px; padding:8px 6px 4px; border:1px solid var(--line); border-radius:12px; background:var(--bg); }
-  .grow .cells { flex:1 1 230px; display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
-  .grow .cell { display:flex; align-items:center; min-width:60px; border:1px solid var(--line); border-radius:8px; }
-  .grow .cell input { flex:1; width:0; min-width:0; font:inherit; padding:8px 4px; border:0; background:transparent; color:var(--fg); }
+  .grow { padding:2px 8px 8px; border:1px solid var(--line); border-radius:12px; background:var(--bg); }
+  .grow .bar { display:flex; align-items:center; justify-content:space-between; }
+  .grow .bar .ctl { display:flex; }
+  .grow .cells { display:flex; gap:6px; }
+  .grow .cell { display:flex; flex-direction:column; min-width:0; border:1px solid var(--line); border-radius:8px; background:var(--card); }
+  .grow .cell .cbar { display:flex; justify-content:space-between; align-items:center; padding:0 2px; }
+  .grow .cell .cbar .handle { padding:2px 3px; font-size:13px; }
+  .grow .cell .cbar button { padding:0 3px; font-size:11px; }
+  .grow .cell input { width:100%; min-width:0; font:inherit; padding:2px 6px 8px; border:0; background:transparent; color:var(--fg); }
   .grow .cell:first-child input { font-weight:600; }
-  .grow .cell .handle { padding:8px 2px 8px 4px; }
-  .grow button.ghost { padding:2px 5px; font-size:13px; }
-  .grow .ctl { display:flex; margin-left:auto; }
+  .grow button.ghost { padding:2px 6px; font-size:13px; }
   .handle { flex:none; cursor:grab; color:var(--muted); touch-action:none; user-select:none; -webkit-user-select:none; padding:8px 4px; line-height:1; font-size:16px; }
   .handle:active { cursor:grabbing; }
   .handle.ph { visibility:hidden; pointer-events:none; }
@@ -235,8 +238,7 @@ function renderGrid(focus) {
     row.forEach((text, c) => {
       const cell = document.createElement("div");
       cell.className = "cell";
-      cell.style.flex = `${Math.max(text.length, 3)} 1 0`; // width follows content, per row
-      cell.style.minWidth = `calc(${Math.max(text.length, 2)}ch + 48px)`; // never clip the text: wrap to the next line instead
+      cell.style.flex = `${text.length + 4} 1 0`; // width follows content, per row
       cellEls.push(cell);
       const inp = Object.assign(document.createElement("input"), { type: "text", value: text, autocomplete: "off" });
       inp.oninput = () => { row[c] = inp.value; saveGrid(); };
@@ -249,11 +251,17 @@ function renderGrid(focus) {
       };
       const grip = makeHandle();
       makeSortable(grip, cell, cellEls, "x", (from, to) => change(() => moveItem(row, from, to)));
-      cell.append(grip, inp, mk("✕", "Delete cell", () => change(() => row.splice(c, 1))));
+      const cx = mk("✕", "Delete cell", () => change(() => row.splice(c, 1)));
+      const cbar = document.createElement("div");
+      cbar.className = "cbar";
+      cbar.append(grip, cx);
+      cell.append(cbar, inp);
       if (focus && focus[0] === r && focus[1] === c) setTimeout(() => inp.focus());
       cells.append(cell);
     });
 
+    const bar = document.createElement("div");
+    bar.className = "bar";
     const ctl = document.createElement("div");
     ctl.className = "ctl";
     ctl.append(
@@ -262,7 +270,8 @@ function renderGrid(focus) {
       mk("↓", "Move row down", () => change(() => moveItem(grid, r, r + 1)), r === grid.length - 1),
       mk("✕", "Delete row", () => change(() => grid.splice(r, 1))),
     );
-    el.append(rowGrip, cells, ctl);
+    bar.append(rowGrip, ctl);
+    el.append(bar, cells);
     t.append(el);
   });
 }
