@@ -30,15 +30,16 @@
   .btns { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
   .btns button { padding:8px 12px; font-size:15px; }
   .awake { color:#2a9d3a; font-weight:600; }
-  .grid-wrap { overflow-x:auto; }
-  #grid { border-collapse:collapse; }
-  #grid td { padding:0; border:1px solid var(--line); }
-  #grid td.x { border:0; }
-  #grid input { width:96px; font:inherit; padding:8px; border:0; background:transparent; color:var(--fg); }
-  #grid tr:not(.head) td:first-child input { font-weight:600; }
-  #grid .head button, #grid td.x button { padding:2px 6px; font-size:13px; }
-  #grid td.x { white-space:nowrap; }
-  #grid .cell { display:flex; align-items:center; }
+  /* Each row is independent: its cells share that row's full width. */
+  #grid { display:flex; flex-direction:column; gap:8px; }
+  .grow { display:flex; flex-wrap:wrap; align-items:center; gap:2px 4px; }
+  .grow .cells { flex:1 1 230px; display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
+  .grow .cell { display:flex; align-items:center; min-width:84px; border:1px solid var(--line); border-radius:8px; }
+  .grow .cell input { flex:1; width:0; min-width:0; font:inherit; padding:8px 4px; border:0; background:transparent; color:var(--fg); }
+  .grow .cell:first-child input { font-weight:600; }
+  .grow .cell .handle { padding:8px 2px 8px 4px; }
+  .grow button.ghost { padding:2px 5px; font-size:13px; }
+  .grow .ctl { display:flex; margin-left:auto; }
   .handle { flex:none; cursor:grab; color:var(--muted); touch-action:none; user-select:none; -webkit-user-select:none; padding:8px 4px; line-height:1; font-size:16px; }
   .handle:active { cursor:grabbing; }
   .handle.ph { visibility:hidden; pointer-events:none; }
@@ -62,12 +63,11 @@
 
   <div class="card">
     <h2>Notes table</h2>
-    <div class="grid-wrap"><table id="grid"></table></div>
+    <div id="grid"></div>
     <div class="btns">
       <button id="add-row">+ Row</button>
-      <button id="add-col">+ Column</button>
     </div>
-    <div class="muted" style="margin-top:8px">Shown at the bottom of the Kindle. Paste <code>a | b | c</code> into a cell to split it across columns.</div>
+    <div class="muted" style="margin-top:8px">Shown at the bottom of the Kindle. Each row is independent and spreads over the full width. Use + on a row to add a cell, and paste <code>a | b | c</code> into a cell to split it.</div>
   </div>
 
   <div class="card">
@@ -207,78 +207,66 @@ document.querySelectorAll("[data-min]").forEach(b =>
 // ---- notes table ----
 let grid = [];
 let saveTimer;
-const ncols = () => Math.max(1, ...grid.map(r => r.length));
+const MAX_COLS = 8;
 
 function saveGrid() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => api("/api/table", "PUT", { rows: grid }), 600);
 }
 
-function renderGrid() {
+function renderGrid(focus) {
   const t = $("#grid");
   t.innerHTML = "";
-  const n = ncols();
-  if (grid.length) {
-    const head = t.insertRow();
-    head.className = "head";
-    head.insertCell().className = "x"; // lines up with the row handles
-    for (let c = 0; c < n; c++) {
-      const b = Object.assign(document.createElement("button"), { className: "ghost", textContent: "✕", title: "Delete column" });
-      b.onclick = () => { grid.forEach(r => r.splice(c, 1)); grid = grid.filter(r => r.length); renderGrid(); saveGrid(); };
-      head.insertCell().append(b);
-    }
-  }
+  grid = grid.filter(r => r.length);
   const rowEls = [];
+  const mk = (text, title, fn, disabled) =>
+    Object.assign(document.createElement("button"), { className: "ghost", textContent: text, title, onclick: fn, disabled });
+  const change = f => { f(); renderGrid(); saveGrid(); };
   grid.forEach((row, r) => {
-    const tr = t.insertRow();
-    rowEls.push(tr);
-    const hc = tr.insertCell();
-    hc.className = "x";
+    const el = document.createElement("div");
+    el.className = "grow";
+    rowEls.push(el);
     const rowGrip = makeHandle();
-    hc.append(rowGrip);
-    makeSortable(rowGrip, tr, rowEls, "y", (from, to) => { moveItem(grid, from, to); renderGrid(); saveGrid(); });
-    const cellEls = []; // only this row's real cells, so a cell can't leave its row
-    for (let c = 0; c < n; c++) {
-      const inp = Object.assign(document.createElement("input"), { type: "text", value: row[c] || "", autocomplete: "off" });
-      inp.oninput = () => { while (row.length <= c) row.push(""); row[c] = inp.value; saveGrid(); };
+    makeSortable(rowGrip, el, rowEls, "y", (from, to) => change(() => moveItem(grid, from, to)));
+
+    const cells = document.createElement("div");
+    cells.className = "cells";
+    const cellEls = []; // only this row's cells, so a cell can't leave its row
+    row.forEach((text, c) => {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      cell.style.flex = `${Math.max(text.length, 3)} 1 0`; // width follows content, per row
+      cellEls.push(cell);
+      const inp = Object.assign(document.createElement("input"), { type: "text", value: text, autocomplete: "off" });
+      inp.oninput = () => { row[c] = inp.value; saveGrid(); };
       inp.onpaste = e => {
-        const text = e.clipboardData.getData("text");
-        if (!text.includes("|")) return;
+        const pasted = e.clipboardData.getData("text");
+        if (!pasted.includes("|")) return;
         e.preventDefault();
-        text.split("|").forEach((s, k) => { while (row.length <= c + k) row.push(""); row[c + k] = s.trim(); });
+        pasted.split("|").forEach((s, k) => { if (c + k < MAX_COLS) row[c + k] = s.trim(); });
         renderGrid(); saveGrid();
       };
-      const td = tr.insertCell();
-      const wrap = Object.assign(document.createElement("div"), { className: "cell" });
-      const real = c < row.length;
-      const grip = makeHandle(!real);
-      if (real) {
-        cellEls.push(td);
-        makeSortable(grip, td, cellEls, "x", (from, to) => { moveItem(row, from, to); renderGrid(); saveGrid(); });
-      }
-      wrap.append(grip, inp);
-      td.append(wrap);
-    }
-    const x = tr.insertCell();
-    x.className = "x";
-    const mk = (text, title, fn, disabled) =>
-      Object.assign(document.createElement("button"), { className: "ghost", textContent: text, title, onclick: fn, disabled });
-    const swap = d => () => { moveItem(grid, r, r + d); renderGrid(); saveGrid(); };
-    x.append(
-      mk("↑", "Move row up", swap(-1), r === 0),
-      mk("↓", "Move row down", swap(1), r === grid.length - 1),
-      mk("✕", "Delete row", () => { grid.splice(r, 1); renderGrid(); saveGrid(); }),
+      const grip = makeHandle();
+      makeSortable(grip, cell, cellEls, "x", (from, to) => change(() => moveItem(row, from, to)));
+      cell.append(grip, inp, mk("✕", "Delete cell", () => change(() => row.splice(c, 1))));
+      if (focus && focus[0] === r && focus[1] === c) setTimeout(() => inp.focus());
+      cells.append(cell);
+    });
+
+    const ctl = document.createElement("div");
+    ctl.className = "ctl";
+    ctl.append(
+      mk("+", "Add cell to this row", () => { row.push(""); renderGrid([r, row.length - 1]); }, row.length >= MAX_COLS),
+      mk("↑", "Move row up", () => change(() => moveItem(grid, r, r - 1)), r === 0),
+      mk("↓", "Move row down", () => change(() => moveItem(grid, r, r + 1)), r === grid.length - 1),
+      mk("✕", "Delete row", () => change(() => grid.splice(r, 1))),
     );
+    el.append(rowGrip, cells, ctl);
+    t.append(el);
   });
 }
 
-$("#add-row").onclick = () => { grid.push([]); renderGrid(); saveGrid(); $("#grid tr:last-child input")?.focus(); };
-$("#add-col").onclick = () => {
-  if (!grid.length) grid.push([]);
-  const n = ncols();
-  grid.forEach(r => { while (r.length <= n) r.push(""); });
-  renderGrid();
-};
+$("#add-row").onclick = () => { grid.push([""]); renderGrid([grid.length - 1, 0]); };
 
 const loadGrid = () => {
   if (dragging || $("#grid").contains(document.activeElement)) return; // don't clobber typing or a drag
