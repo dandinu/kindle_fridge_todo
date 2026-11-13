@@ -74,6 +74,8 @@ There are plenty of guides online on how to jailbreak a Kindle and install USBNe
 | POST | `/api/order` | `{"ids": [3,1,2]}`: new order of the open items |
 | POST | `/api/clear-done` | |
 | POST | `/api/add` | Same as POST `/api/items` but requires `Authorization: Bearer $API_TOKEN` (or `?token=`). Use it for iOS Shortcuts and Home Assistant. |
+| GET | `/api/table` | `{"rows": [["Alice","3","Bob","4"],["Team lunch","Nov 23"]]}`: the notes table drawn at the bottom of the Kindle image |
+| PUT | `/api/table` | `{"rows": [[...], ...]}` replaces the table. Rows may have different lengths. Max 12 rows, 8 columns, 60 chars per cell. |
 | GET | `/api/kindle` | `last_seen`, `battery`, `stay_awake_until` |
 | POST | `/api/kindle/stay-awake` | `{"minutes": 30}`; `0` cancels |
 | GET | `/kindle.png?bat=NN` | Records check-in and battery. Supports `If-None-Match` and returns `304` if unchanged. Sends `X-Stay-Awake: <seconds>` while stay-awake is active. |

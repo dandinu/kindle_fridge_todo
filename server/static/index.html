@@ -30,6 +30,13 @@
   .btns { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
   .btns button { padding:8px 12px; font-size:15px; }
   .awake { color:#2a9d3a; font-weight:600; }
+  .grid-wrap { overflow-x:auto; }
+  #grid { border-collapse:collapse; }
+  #grid td { padding:0; border:1px solid var(--line); }
+  #grid td.x { border:0; }
+  #grid input { width:96px; font:inherit; padding:8px; border:0; background:transparent; color:var(--fg); }
+  #grid tr:not(.head) td:first-child input { font-weight:600; }
+  #grid .head button, #grid td.x button { padding:2px 6px; font-size:13px; }
 </style>
 </head>
 <body>
@@ -43,6 +50,16 @@
   <div class="row">
     <span class="muted" id="count"></span>
     <button class="ghost" id="clear">Clear done</button>
+  </div>
+
+  <div class="card">
+    <h2>Notes table</h2>
+    <div class="grid-wrap"><table id="grid"></table></div>
+    <div class="btns">
+      <button id="add-row">+ Row</button>
+      <button id="add-col">+ Column</button>
+    </div>
+    <div class="muted" style="margin-top:8px">Shown at the bottom of the Kindle. Paste <code>a | b | c</code> into a cell to split it across columns.</div>
   </div>
 
   <div class="card">
@@ -132,7 +149,65 @@ $("#clear").onclick = () => api("/api/clear-done", "POST").then(render);
 document.querySelectorAll("[data-min]").forEach(b =>
   b.onclick = () => api("/api/kindle/stay-awake", "POST", { minutes: +b.dataset.min }).then(renderKindle));
 
-const refresh = () => { api("/api/items").then(render); api("/api/kindle").then(renderKindle); };
+// ---- notes table ----
+let grid = [];
+let saveTimer;
+const ncols = () => Math.max(1, ...grid.map(r => r.length));
+
+function saveGrid() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => api("/api/table", "PUT", { rows: grid }), 600);
+}
+
+function renderGrid() {
+  const t = $("#grid");
+  t.innerHTML = "";
+  const n = ncols();
+  if (grid.length) {
+    const head = t.insertRow();
+    head.className = "head";
+    for (let c = 0; c < n; c++) {
+      const b = Object.assign(document.createElement("button"), { className: "ghost", textContent: "✕", title: "Delete column" });
+      b.onclick = () => { grid.forEach(r => r.splice(c, 1)); grid = grid.filter(r => r.length); renderGrid(); saveGrid(); };
+      head.insertCell().append(b);
+    }
+  }
+  grid.forEach((row, r) => {
+    const tr = t.insertRow();
+    for (let c = 0; c < n; c++) {
+      const inp = Object.assign(document.createElement("input"), { type: "text", value: row[c] || "", autocomplete: "off" });
+      inp.oninput = () => { while (row.length <= c) row.push(""); row[c] = inp.value; saveGrid(); };
+      inp.onpaste = e => {
+        const text = e.clipboardData.getData("text");
+        if (!text.includes("|")) return;
+        e.preventDefault();
+        text.split("|").forEach((s, k) => { while (row.length <= c + k) row.push(""); row[c + k] = s.trim(); });
+        renderGrid(); saveGrid();
+      };
+      tr.insertCell().append(inp);
+    }
+    const x = tr.insertCell();
+    x.className = "x";
+    const del = Object.assign(document.createElement("button"), { className: "ghost", textContent: "✕", title: "Delete row" });
+    del.onclick = () => { grid.splice(r, 1); renderGrid(); saveGrid(); };
+    x.append(del);
+  });
+}
+
+$("#add-row").onclick = () => { grid.push([]); renderGrid(); saveGrid(); $("#grid tr:last-child input")?.focus(); };
+$("#add-col").onclick = () => {
+  if (!grid.length) grid.push([]);
+  const n = ncols();
+  grid.forEach(r => { while (r.length <= n) r.push(""); });
+  renderGrid();
+};
+
+const loadGrid = () => {
+  if ($("#grid").contains(document.activeElement)) return; // don't clobber typing
+  api("/api/table").then(d => { grid = d.rows; renderGrid(); });
+};
+
+const refresh = () => { api("/api/items").then(render); api("/api/kindle").then(renderKindle); loadGrid(); };
 refresh();
 setInterval(refresh, 30000);
 document.addEventListener("visibilitychange", () => !document.hidden && refresh());

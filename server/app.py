@@ -1,5 +1,6 @@
 import hashlib
 import io
+import json
 import os
 import sqlite3
 import time
@@ -144,6 +145,37 @@ def clear_done():
     return jsonify(items())
 
 
+MAX_ROWS, MAX_COLS, MAX_CELL = 12, 8, 60
+
+
+def get_table():
+    try:
+        return json.loads(get_state("table", "[]"))
+    except ValueError:
+        return []
+
+
+@app.get("/api/table")
+def read_table():
+    return jsonify(rows=get_table())
+
+
+@app.put("/api/table")
+def write_table():
+    rows = (request.get_json(silent=True) or {}).get("rows")
+    if not isinstance(rows, list) or not all(isinstance(r, list) for r in rows):
+        return jsonify(error="rows must be a list of lists"), 400
+    clean = []
+    for r in rows[:MAX_ROWS]:
+        cells = [str(c).strip()[:MAX_CELL] for c in r[:MAX_COLS]]
+        while cells and not cells[-1]:
+            cells.pop()
+        if cells:
+            clean.append(cells)
+    set_state("table", json.dumps(clean))
+    return jsonify(rows=clean)
+
+
 @app.get("/api/kindle")
 def kindle_status():
     return jsonify(
@@ -178,10 +210,61 @@ def wrap(draw, text, font, max_w):
     return lines or [""]
 
 
-def render(todo):
+def table_layout(d, table, margin=70):
+    """Size columns to their content, using the largest font that fits the page width.
+
+    Rows may have different cell counts. If even the smallest font overflows, the
+    widest columns are capped and their text wraps.
+    """
+    avail, pad = WIDTH - 2 * margin, 14
+    ncols = max(len(r) for r in table)
+    for size in (40, 36, 32, 28, 24):
+        font = ImageFont.truetype(FONT_REG, size)
+        bold = ImageFont.truetype(FONT_BOLD, size)
+        widths = [0] * ncols
+        for r in table:
+            for i, c in enumerate(r):
+                widths[i] = max(widths[i], int(d.textlength(c, font=bold if i == 0 else font)) + 2 * pad)
+        if sum(widths) <= avail:
+            break
+    cap = max(widths)
+    while sum(min(w, cap) for w in widths) > avail and cap > 80:
+        cap -= 8
+    widths = [min(w, cap) for w in widths]
+
+    line_h = int(size * 1.25)
+    rows = []
+    for r in table:
+        cells = [wrap(d, c, bold if i == 0 else font, widths[i] - 2 * pad) for i, c in enumerate(r)]
+        rows.append((cells, max(len(c) for c in cells) * line_h + 2 * pad))
+    return dict(font=font, bold=bold, widths=widths, rows=rows, line_h=line_h, pad=pad,
+                margin=margin, h=sum(h for _, h in rows))
+
+
+def draw_table(d, tl, top):
+    y = top
+    for cells, h in tl["rows"]:
+        x = tl["margin"]
+        for i, lines in enumerate(cells):
+            w = tl["widths"][i]
+            d.rectangle((x, y, x + w, y + h), outline=140, width=2)
+            for j, line in enumerate(lines):
+                d.text((x + tl["pad"], y + tl["pad"] + j * tl["line_h"]), line,
+                       font=tl["bold"] if i == 0 else tl["font"], fill=0)
+            x += w
+        y += h
+
+
+def render(todo, table=()):
     img = Image.new("L", (WIDTH, HEIGHT), 255)
     d = ImageDraw.Draw(img)
     margin, bottom = 70, HEIGHT - 80
+
+    if table:
+        tl = table_layout(d, table, margin)
+        bottom -= tl["h"] + 40
+        draw_table(d, tl, HEIGHT - 80 - tl["h"])
+        d.line((margin, bottom + 10, WIDTH - margin, bottom + 10), fill=0, width=4)
 
     title = ImageFont.truetype(FONT_BOLD, 84)
     d.text((margin, 60), "To do", font=title, fill=0)
@@ -234,8 +317,8 @@ def kindle_png():
     if bat:
         set_state("battery", bat)
 
-    todo = items()
-    etag = hashlib.sha1(repr(todo).encode()).hexdigest()[:16]
+    todo, table = items(), get_table()
+    etag = hashlib.sha1(repr((todo, table)).encode()).hexdigest()[:16]
     headers = {"ETag": f'"{etag}"', "Cache-Control": "no-cache"}
     until = int(get_state("stay_awake_until", 0))
     if until > time.time():
@@ -245,7 +328,7 @@ def kindle_png():
         return Response(status=304, headers=headers)
 
     buf = io.BytesIO()
-    render(todo).save(buf, "PNG", optimize=True)
+    render(todo, table).save(buf, "PNG", optimize=True)
     return Response(buf.getvalue(), mimetype="image/png", headers=headers)
 
 
