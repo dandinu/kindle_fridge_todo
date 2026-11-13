@@ -37,6 +37,14 @@
   #grid input { width:96px; font:inherit; padding:8px; border:0; background:transparent; color:var(--fg); }
   #grid tr:not(.head) td:first-child input { font-weight:600; }
   #grid .head button, #grid td.x button { padding:2px 6px; font-size:13px; }
+  #grid td.x { white-space:nowrap; }
+  #grid .cell { display:flex; align-items:center; }
+  .handle { flex:none; cursor:grab; color:var(--muted); touch-action:none; user-select:none; -webkit-user-select:none; padding:8px 4px; line-height:1; font-size:16px; }
+  .handle:active { cursor:grabbing; }
+  .handle.ph { visibility:hidden; pointer-events:none; }
+  .dragging { opacity:.5; }
+  .drop-target { outline:2px solid var(--accent); outline-offset:-2px; }
+  button:disabled { opacity:.3; cursor:default; }
 </style>
 </head>
 <body>
@@ -79,14 +87,61 @@ const api = (path, method = "GET", body) =>
   fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body && JSON.stringify(body) })
     .then(r => r.json());
 
+// ---- drag to reorder (Pointer Events, so it works with touch too) ----
+let dragging = false;
+const moveItem = (arr, from, to) => arr.splice(to, 0, arr.splice(from, 1)[0]);
+const makeHandle = ph => Object.assign(document.createElement("span"),
+  { className: "handle" + (ph ? " ph" : ""), textContent: "⠿", title: ph ? "" : "Drag to reorder" });
+
+// Drag `handle` to move `item` among `sibs` (all elements of the same list) along `axis`.
+function makeSortable(handle, item, sibs, axis, onDrop) {
+  const vert = axis === "y";
+  handle.onpointerdown = e => {
+    if (e.button) return;
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    dragging = true;
+    const from = sibs.indexOf(item);
+    let to = from;
+    item.classList.add("dragging");
+    handle.onpointermove = ev => {
+      const p = vert ? ev.clientY : ev.clientX;
+      let best = Infinity;
+      sibs.forEach((s, i) => {
+        const r = s.getBoundingClientRect();
+        const d = Math.abs((vert ? r.top + r.bottom : r.left + r.right) / 2 - p);
+        if (d < best) { best = d; to = i; }
+      });
+      sibs.forEach((s, i) => s.classList.toggle("drop-target", i === to && to !== from));
+    };
+    handle.onpointerup = handle.onpointercancel = ev => {
+      handle.onpointermove = handle.onpointerup = handle.onpointercancel = null;
+      sibs.forEach(s => s.classList.remove("drop-target"));
+      item.classList.remove("dragging");
+      dragging = false;
+      if (ev.type === "pointerup" && to !== from) onDrop(from, to);
+    };
+  };
+}
+
 function render(items) {
   const list = $("#list");
   list.innerHTML = "";
   if (!items.length) list.innerHTML = '<li class="empty">Nothing to do 🎉</li>';
   const open = items.filter(i => !i.done);
+  const openLis = [];
   items.forEach(item => {
     const li = document.createElement("li");
     if (item.done) li.className = "done";
+    const grip = makeHandle(item.done);
+    if (!item.done) {
+      openLis.push(li);
+      makeSortable(grip, li, openLis, "y", (from, to) => {
+        const ids = open.map(i => i.id);
+        moveItem(ids, from, to);
+        api("/api/order", "POST", { ids }).then(render);
+      });
+    }
     const cb = document.createElement("input");
     cb.type = "checkbox"; cb.checked = item.done;
     cb.onchange = () => api(`/api/items/${item.id}`, "PATCH", { done: cb.checked }).then(render);
@@ -96,7 +151,7 @@ function render(items) {
       const t = prompt("Edit item", item.text);
       if (t && t.trim()) api(`/api/items/${item.id}`, "PATCH", { text: t }).then(render);
     };
-    li.append(cb, span);
+    li.append(grip, cb, span);
     if (!item.done) {
       const idx = open.indexOf(item);
       const move = d => {
@@ -166,14 +221,23 @@ function renderGrid() {
   if (grid.length) {
     const head = t.insertRow();
     head.className = "head";
+    head.insertCell().className = "x"; // lines up with the row handles
     for (let c = 0; c < n; c++) {
       const b = Object.assign(document.createElement("button"), { className: "ghost", textContent: "✕", title: "Delete column" });
       b.onclick = () => { grid.forEach(r => r.splice(c, 1)); grid = grid.filter(r => r.length); renderGrid(); saveGrid(); };
       head.insertCell().append(b);
     }
   }
+  const rowEls = [];
   grid.forEach((row, r) => {
     const tr = t.insertRow();
+    rowEls.push(tr);
+    const hc = tr.insertCell();
+    hc.className = "x";
+    const rowGrip = makeHandle();
+    hc.append(rowGrip);
+    makeSortable(rowGrip, tr, rowEls, "y", (from, to) => { moveItem(grid, from, to); renderGrid(); saveGrid(); });
+    const cellEls = []; // only this row's real cells, so a cell can't leave its row
     for (let c = 0; c < n; c++) {
       const inp = Object.assign(document.createElement("input"), { type: "text", value: row[c] || "", autocomplete: "off" });
       inp.oninput = () => { while (row.length <= c) row.push(""); row[c] = inp.value; saveGrid(); };
@@ -184,13 +248,27 @@ function renderGrid() {
         text.split("|").forEach((s, k) => { while (row.length <= c + k) row.push(""); row[c + k] = s.trim(); });
         renderGrid(); saveGrid();
       };
-      tr.insertCell().append(inp);
+      const td = tr.insertCell();
+      const wrap = Object.assign(document.createElement("div"), { className: "cell" });
+      const real = c < row.length;
+      const grip = makeHandle(!real);
+      if (real) {
+        cellEls.push(td);
+        makeSortable(grip, td, cellEls, "x", (from, to) => { moveItem(row, from, to); renderGrid(); saveGrid(); });
+      }
+      wrap.append(grip, inp);
+      td.append(wrap);
     }
     const x = tr.insertCell();
     x.className = "x";
-    const del = Object.assign(document.createElement("button"), { className: "ghost", textContent: "✕", title: "Delete row" });
-    del.onclick = () => { grid.splice(r, 1); renderGrid(); saveGrid(); };
-    x.append(del);
+    const mk = (text, title, fn, disabled) =>
+      Object.assign(document.createElement("button"), { className: "ghost", textContent: text, title, onclick: fn, disabled });
+    const swap = d => () => { moveItem(grid, r, r + d); renderGrid(); saveGrid(); };
+    x.append(
+      mk("↑", "Move row up", swap(-1), r === 0),
+      mk("↓", "Move row down", swap(1), r === grid.length - 1),
+      mk("✕", "Delete row", () => { grid.splice(r, 1); renderGrid(); saveGrid(); }),
+    );
   });
 }
 
@@ -203,11 +281,11 @@ $("#add-col").onclick = () => {
 };
 
 const loadGrid = () => {
-  if ($("#grid").contains(document.activeElement)) return; // don't clobber typing
+  if (dragging || $("#grid").contains(document.activeElement)) return; // don't clobber typing or a drag
   api("/api/table").then(d => { grid = d.rows; renderGrid(); });
 };
 
-const refresh = () => { api("/api/items").then(render); api("/api/kindle").then(renderKindle); loadGrid(); };
+const refresh = () => { if (dragging) return; api("/api/items").then(render); api("/api/kindle").then(renderKindle); loadGrid(); };
 refresh();
 setInterval(refresh, 30000);
 document.addEventListener("visibilitychange", () => !document.hidden && refresh());

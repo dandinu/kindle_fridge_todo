@@ -228,4 +228,3 @@ ip route del default dev usb0; ip route add default via ROUTER_IP dev wlan0
 ## Ideas / TODO
 - Security: dropbear password login is on by default in the USBNetLite config (`kindle/usbnetlite/config`). Change the password, add your key to `authorized_keys` and set `ALLOW_PASSWORD_LOGIN="false"`.
 - Low-battery warning in the web UI or a Home Assistant notification.
-- Drag-and-drop reordering in the web UI.
